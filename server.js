@@ -92,10 +92,13 @@ app.get("/api/init-user", async (req, res) => {
   }
 });
 
-// React build klasörünü sun
+
 app.use(express.static(path.join(__dirname, "client/build")));
 
 // Tüm GET isteklerini React uygulamasına yönlendir
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "client/build/index.html"));
+});
 
 
 
