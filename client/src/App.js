@@ -9,6 +9,7 @@ import {
 } from "chart.js";
 import "bootstrap/dist/css/bootstrap.min.css";
 import "bootstrap/dist/js/bootstrap.bundle.min.js";
+import logo from "./assets/erasense-logo.png";
 
 ChartJS.register(LineElement, CategoryScale, LinearScale, PointElement);
 
@@ -101,34 +102,6 @@ export default function App() {
       });
   };
 
-  if (!loggedIn) {
-    return (
-      <div className="d-flex vh-100 bg-dark text-light align-items-center justify-content-center">
-        <div className="card bg-secondary p-4" style={{ minWidth: "320px" }}>
-          <h4 className="text-center mb-3">🔐 Giriş Yap</h4>
-          <input
-            type="text"
-            className="form-control mb-2"
-            placeholder="Kullanıcı Adı"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-          />
-          <input
-            type="password"
-            className="form-control mb-3"
-            placeholder="Şifre"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          {loginError && <div className="text-danger mb-2 text-center">{loginError}</div>}
-          <button className="btn btn-light w-100" onClick={handleLogin}>
-            Giriş Yap
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   const filteredTests = tests.filter((test) => {
     const name = test.test_name?.toLowerCase() || "";
     const result = test.result || "";
@@ -136,24 +109,51 @@ export default function App() {
     const matchesSearch = name.includes(searchTerm.toLowerCase());
     const matchesName = !filterName || test.test_name === filterName;
     const matchesResult = filterResult === "all" || result === filterResult;
-
     const matchesDate = (!startDate || new Date(time) >= new Date(startDate)) &&
                         (!endDate || new Date(time) <= new Date(endDate));
-
     return matchesSearch && matchesResult && matchesDate && matchesName;
   });
 
   const uniqueTestNames = [...new Set(tests.map(test => test.test_name).filter(Boolean))];
 
+  if (!loggedIn) {
+    return (
+          <div className="d-flex vh-100 bg-dark text-light align-items-center justify-content-center">
+            <div className="card bg-secondary p-4 text-center w-100" style={{ maxWidth: "380px" }}>
+              <img src={logo} alt="Logo" style={{ maxWidth: "180px", margin: "0 auto 10px" }} />
+              <h4 className="mb-3"><span role="img" aria-label="lock">🔐</span> Giriş Yap</h4>
+              <input
+                type="text"
+                className="form-control mb-2"
+                placeholder="Kullanıcı Adı"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+              />
+              <input
+                type="password"
+                className="form-control mb-3"
+                placeholder="Şifre"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              {loginError && <div className="text-danger mb-2">{loginError}</div>}
+              <button className="btn btn-light w-100" onClick={handleLogin}>Giriş Yap</button>
+            </div>
+          </div>
+    );
+  }
+
   return (
     <div className="d-flex flex-column vh-100 bg-dark text-light">
-      <nav className="navbar navbar-dark bg-secondary px-3 d-flex justify-content-between">
-        <span className="navbar-brand mb-0 h1">🧪 LFA Test Yönetim Paneli</span>
+      <nav className="navbar navbar-dark bg-secondary px-3 d-flex justify-content-between align-items-center">
+        <div className="d-flex align-items-center gap-2">
+          <img src={logo} alt="Logo" style={{ height: "48px" }} />
+          <span className="navbar-brand mb-0 h1">Test Yönetim Paneli</span>
+        </div>
         <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>Çıkış Yap</button>
       </nav>
-
       <div className="container-fluid p-3 overflow-auto">
-        <div className="row">
+     <div className="row">
           <div className="col-md-4">
             <input
               type="text"

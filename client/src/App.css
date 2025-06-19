@@ -27,6 +27,11 @@
 .App-link {
   color: #61dafb;
 }
+.login-card {
+  max-width: 380px;
+  margin: 0 auto;
+  text-align: center;
+}
 
 @keyframes App-logo-spin {
   from {
@@ -36,3 +41,4 @@
     transform: rotate(360deg);
   }
 }
+
