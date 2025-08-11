@@ -62,7 +62,11 @@ app.get("/api/tests", async (req, res) => {
     timestamp: t.timestamp,
     result: t.result,
     qr_read_success: t.qr_read_success || false,
-    user_info: t.user_info || null
+    experiment_id1: t.experiment_id1 || null,
+    experiment_id2: t.experiment_id2 || null,
+    qr_code_from_command: t.qr_code_from_command || null,
+    user_info: t.user_info || null,
+    user_description: t.user_description || null
   })));
 });
 
@@ -116,9 +120,48 @@ app.get("/api/tests/:id", async (req, res) => {
     test_intensity: data.test_intensity || null,
     background_intensity: data.background_intensity || null,
     
-    // Kullanıcı bilgileri
+    // Yeni alanlar
+    experiment_id1: data.experiment_id1 || null,
+    experiment_id2: data.experiment_id2 || null,
+    qr_code_from_command: data.qr_code_from_command || null,
+    
+    // Açıklama alanları
+    user_description: data.user_description || null,
+    description_updated_at: data.description_updated_at || null,
+    
+    // Kullanıcı bilgileri (eski veriler için)
     user_info: data.user_info || null
   });
+});
+
+// Test açıklaması güncelleme endpoint'i
+app.put("/api/tests/:id/description", async (req, res) => {
+  if (!req.session.loggedIn) return res.status(401).json({ error: "Oturum gerekli" });
+  
+  let id;
+  try {
+    id = new ObjectId(req.params.id);
+  } catch (err) {
+    return res.status(400).json({ error: "Geçersiz ID" });
+  }
+  
+  const { description } = req.body;
+  
+  try {
+    const result = await db.collection("images").updateOne(
+      { _id: id },
+      { $set: { user_description: description, description_updated_at: new Date() } }
+    );
+    
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Test bulunamadı" });
+    }
+    
+    res.json({ success: true, message: "Açıklama güncellendi" });
+  } catch (err) {
+    console.error("Açıklama güncelleme hatası:", err);
+    res.status(500).json({ error: "Güncelleme başarısız" });
+  }
 });
 
 // İstatistikler endpoint'i (opsiyonel)
@@ -133,13 +176,10 @@ app.get("/api/stats", async (req, res) => {
     qr_failed: tests.filter(t => t.qr_read_success === false).length,
     positive: tests.filter(t => t.result === "Pozitif").length,
     negative: tests.filter(t => t.result === "Negatif").length,
-    by_gender: {
-      male: tests.filter(t => t.user_info?.gender === "Erkek").length,
-      female: tests.filter(t => t.user_info?.gender === "Kadın").length
-    },
-    by_smoking: {
-      yes: tests.filter(t => t.user_info?.smoking === "Evet").length,
-      no: tests.filter(t => t.user_info?.smoking === "Hayır").length
+    with_description: tests.filter(t => t.user_description).length,
+    experiments: {
+      unique_exp1: [...new Set(tests.map(t => t.experiment_id1).filter(Boolean))].length,
+      unique_exp2: [...new Set(tests.map(t => t.experiment_id2).filter(Boolean))].length
     }
   };
   

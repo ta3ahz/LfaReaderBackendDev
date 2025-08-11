@@ -18,8 +18,6 @@ export default function App() {
   const [searchTerm, setSearchTerm] = useState("");
   const [filterResult, setFilterResult] = useState("all");
   const [filterName, setFilterName] = useState("");
-  const [filterGender, setFilterGender] = useState("all");
-  const [filterSmoking, setFilterSmoking] = useState("all");
   const [filterQRStatus, setFilterQRStatus] = useState("all");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -32,6 +30,18 @@ export default function App() {
   const [showChart, setShowChart] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
+  
+  // Tab ve WiFi QR state'leri
+  const [activeTab, setActiveTab] = useState("tests");
+  const [wifiSSID, setWifiSSID] = useState("");
+  const [wifiPassword, setWifiPassword] = useState("");
+  const [wifiSecurity, setWifiSecurity] = useState("WPA");
+  const [qrCodeData, setQrCodeData] = useState("");
+  
+  // Açıklama düzenleme state'leri
+  const [editingDescription, setEditingDescription] = useState(false);
+  const [tempDescription, setTempDescription] = useState("");
+  const [savingDescription, setSavingDescription] = useState(false);
 
   const loadTests = () => {
     setLoading(true);
@@ -64,9 +74,11 @@ export default function App() {
       .then((res) => res.json())
       .then((data) => {
         setSelectedTest(data);
+        setTempDescription(data.user_description || "");
         setShowOriginalImage(false);
         setShowCroppedImage(false);
         setShowChart(false);
+        setEditingDescription(false);
         setLoadingDetails(false);
       })
       .catch((err) => {
@@ -106,27 +118,78 @@ export default function App() {
       });
   };
 
+  // Açıklama kaydetme fonksiyonu
+  const saveDescription = async () => {
+    if (!selectedTest) return;
+    
+    setSavingDescription(true);
+    
+    try {
+      const response = await fetch(`/api/tests/${selectedTest._id}/description`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ description: tempDescription })
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        setSelectedTest({
+          ...selectedTest,
+          user_description: tempDescription,
+          description_updated_at: new Date()
+        });
+        setEditingDescription(false);
+        loadTests(); // Listeyi yenile (📝 simgesi için)
+        alert("Açıklama başarıyla güncellendi!");
+      } else {
+        alert("Güncelleme başarısız: " + (data.error || "Bilinmeyen hata"));
+      }
+    } catch (err) {
+      console.error("Açıklama güncelleme hatası:", err);
+      alert("Güncelleme sırasında hata oluştu!");
+    } finally {
+      setSavingDescription(false);
+    }
+  };
+
+  // WiFi QR kod oluşturma fonksiyonu
+  const generateWifiQR = () => {
+    if (!wifiSSID) {
+      alert("Lütfen WiFi adını girin!");
+      return;
+    }
+
+    // WiFi QR kod formatı
+    const wifiString = `WIFI:T:${wifiSecurity};S:${wifiSSID};P:${wifiPassword};;`;
+    
+    // QR Server API kullan
+    const qrApiUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(wifiString)}`;
+    
+    // Image olarak set et
+    setQrCodeData(qrApiUrl);
+  };
+
   const filteredTests = tests.filter((test) => {
     const name = test.test_name?.toLowerCase() || "";
     const result = test.result || "";
     const time = test.timestamp || 0;
     const qrStatus = test.qr_read_success;
-    const gender = test.user_info?.gender || "";
-    const smoking = test.user_info?.smoking || "";
 
-    const matchesSearch = name.includes(searchTerm.toLowerCase());
+    const matchesSearch = name.includes(searchTerm.toLowerCase()) || 
+                         (test.experiment_id1 && test.experiment_id1.toString().includes(searchTerm)) ||
+                         (test.experiment_id2 && test.experiment_id2.toString().includes(searchTerm)) ||
+                         (test.qr_code_from_command && test.qr_code_from_command.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesName = !filterName || test.test_name === filterName;
     const matchesResult = filterResult === "all" || result === filterResult;
     const matchesQRStatus = filterQRStatus === "all" || 
                            (filterQRStatus === "success" && qrStatus === true) ||
                            (filterQRStatus === "failed" && qrStatus === false);
-    const matchesGender = filterGender === "all" || gender === filterGender;
-    const matchesSmoking = filterSmoking === "all" || smoking === filterSmoking;
     const matchesDate = (!startDate || new Date(time) >= new Date(startDate)) &&
                         (!endDate || new Date(time) <= new Date(endDate));
     
-    return matchesSearch && matchesResult && matchesDate && matchesName && 
-           matchesQRStatus && matchesGender && matchesSmoking;
+    return matchesSearch && matchesResult && matchesDate && matchesName && matchesQRStatus;
   });
 
   const uniqueTestNames = [...new Set(tests.map(test => test.test_name).filter(Boolean))];
@@ -170,202 +233,373 @@ export default function App() {
         <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>Çıkış Yap</button>
       </nav>
       
-      <div className="container-fluid p-3 overflow-auto">
-        <div className="row">
-          <div className="col-md-4">
-            {/* Arama ve Filtreler */}
-            <div className="mb-3">
-              <input
-                type="text"
-                className="form-control mb-2"
-                placeholder="🔍 Test Ara"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              
-              <div className="row g-2">
-                <div className="col-6">
-                  <select className="form-select" value={filterResult} onChange={(e) => setFilterResult(e.target.value)}>
-                    <option value="all">Tüm Sonuçlar</option>
-                    <option value="Pozitif">Pozitif</option>
-                    <option value="Negatif">Negatif</option>
-                  </select>
-                </div>
-                <div className="col-6">
-                  <select className="form-select" value={filterQRStatus} onChange={(e) => setFilterQRStatus(e.target.value)}>
-                    <option value="all">QR Durumu</option>
-                    <option value="success">QR Başarılı</option>
-                    <option value="failed">QR Başarısız</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="row g-2 mt-2">
-                <div className="col-6">
-                  <select className="form-select" value={filterGender} onChange={(e) => setFilterGender(e.target.value)}>
-                    <option value="all">Cinsiyet</option>
-                    <option value="Kadın">Kadın</option>
-                    <option value="Erkek">Erkek</option>
-                  </select>
-                </div>
-                <div className="col-6">
-                  <select className="form-select" value={filterSmoking} onChange={(e) => setFilterSmoking(e.target.value)}>
-                    <option value="all">Sigara</option>
-                    <option value="Evet">Sigara İçiyor</option>
-                    <option value="Hayır">Sigara İçmiyor</option>
-                  </select>
-                </div>
-              </div>
-              
-              <div className="d-flex gap-2 mt-2">
+      {/* Tab Navigation */}
+      <ul className="nav nav-tabs bg-dark">
+        <li className="nav-item">
+          <button 
+            className={`nav-link ${activeTab === 'tests' ? 'active' : ''}`}
+            onClick={() => setActiveTab('tests')}
+          >
+            Test Listesi
+          </button>
+        </li>
+        <li className="nav-item">
+          <button 
+            className={`nav-link ${activeTab === 'wifi' ? 'active' : ''}`}
+            onClick={() => setActiveTab('wifi')}
+          >
+            WiFi QR Oluştur
+          </button>
+        </li>
+      </ul>
+
+      {/* Tab İçerikleri */}
+      {activeTab === 'tests' ? (
+        <div className="container-fluid p-3 overflow-auto">
+          <div className="row">
+            <div className="col-md-4">
+              {/* Arama ve Filtreler */}
+              <div className="mb-3">
                 <input
-                  type="date"
-                  className="form-control"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
+                  type="text"
+                  className="form-control mb-2"
+                  placeholder="🔍 Test Ara"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
                 />
-                <input
-                  type="date"
-                  className="form-control"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
+                
+                <div className="row g-2">
+                  <div className="col-6">
+                    <select className="form-select" value={filterResult} onChange={(e) => setFilterResult(e.target.value)}>
+                      <option value="all">Tüm Sonuçlar</option>
+                      <option value="Pozitif">Pozitif</option>
+                      <option value="Negatif">Negatif</option>
+                    </select>
+                  </div>
+                  <div className="col-6">
+                    <select className="form-select" value={filterQRStatus} onChange={(e) => setFilterQRStatus(e.target.value)}>
+                      <option value="all">QR Durumu</option>
+                      <option value="success">QR Başarılı</option>
+                      <option value="failed">QR Başarısız</option>
+                    </select>
+                  </div>
+                </div>
+                
+                <div className="d-flex gap-2 mt-2">
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                  />
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
+                
+                <select className="form-select mt-2" value={filterName} onChange={(e) => setFilterName(e.target.value)}>
+                  <option value="">Tüm Testler</option>
+                  {uniqueTestNames.map((name, idx) => (
+                    <option key={idx} value={name}>{name}</option>
+                  ))}
+                </select>
               </div>
-              
-              <select className="form-select mt-2" value={filterName} onChange={(e) => setFilterName(e.target.value)}>
-                <option value="">Tüm Testler</option>
-                {uniqueTestNames.map((name, idx) => (
-                  <option key={idx} value={name}>{name}</option>
-                ))}
-              </select>
+
+              {/* Test Listesi */}
+              {loading ? (
+                <div className="text-center py-4 text-muted">
+                  <div className="spinner-border text-light" role="status"></div>
+                  <div className="mt-2">Testler yükleniyor...</div>
+                </div>
+              ) : (
+                <ul className="list-group list-group-flush bg-dark">
+                  {filteredTests.map((test) => (
+                    <li
+                      key={test._id}
+                      className="list-group-item bg-secondary text-light d-flex justify-content-between align-items-center"
+                      onClick={() => loadDetails(test._id)}
+                      style={{ cursor: "pointer" }}
+                    >
+                      <div>
+                        <div>🧪 {test.test_name}</div>
+                        <small className="text-muted">
+                          {new Date(test.timestamp).toLocaleString('tr-TR')}
+                        </small>
+                        {(test.experiment_id1 || test.experiment_id2) && (
+                          <div>
+                            <small className="text-info">
+                              Exp: {test.experiment_id1 || 'N/A'} / {test.experiment_id2 || 'N/A'}
+                            </small>
+                          </div>
+                        )}
+                      </div>
+                      <div className="d-flex gap-1 align-items-center">
+                        {test.user_description && (
+                          <span className="badge bg-info" title="Açıklama var">📝</span>
+                        )}
+                        {test.qr_read_success ? (
+                          <span className="badge bg-success">QR ✓</span>
+                        ) : (
+                          <span className="badge bg-danger">QR ✗</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
 
-            {/* Test Listesi */}
-            {loading ? (
-              <div className="text-center py-4 text-muted">
-                <div className="spinner-border text-light" role="status"></div>
-                <div className="mt-2">Testler yükleniyor...</div>
-              </div>
-            ) : (
-              <ul className="list-group list-group-flush bg-dark">
-                {filteredTests.map((test) => (
-                  <li
-                    key={test._id}
-                    className="list-group-item bg-secondary text-light d-flex justify-content-between align-items-center"
-                    onClick={() => loadDetails(test._id)}
-                    style={{ cursor: "pointer" }}
-                  >
-                    <div>
-                      <div>🧪 {test.test_name}</div>
-                      <small className="text-muted">
-                        {new Date(test.timestamp).toLocaleString('tr-TR')}
-                      </small>
+            <div className="col-md-8">
+              {loadingDetails ? (
+                <div className="text-center py-4 text-muted">
+                  <div className="spinner-border text-light" role="status"></div>
+                  <div className="mt-2">Detaylar yükleniyor...</div>
+                </div>
+              ) : selectedTest && (
+                <div className="card bg-secondary text-light p-4">
+                  <h5 className="mb-4">📄 Test Detayları</h5>
+                  
+                  {/* Temel Bilgiler */}
+                  <div className="row mb-4">
+                    <div className="col-md-6">
+                      <p><strong>Test Adı:</strong> {selectedTest.test_name}</p>
+                      <p><strong>Sonuç:</strong> {selectedTest.result}</p>
+                      <p><strong>Tarih:</strong> {new Date(selectedTest.timestamp).toLocaleString('tr-TR')}</p>
                     </div>
-                    <div>
-                      {test.qr_read_success ? (
-                        <span className="badge bg-success">QR ✓</span>
+                    <div className="col-md-6">
+                      <p><strong>QR Durumu:</strong> 
+                        {selectedTest.qr_read_success ? 
+                          <span className="badge bg-success ms-2">Başarılı</span> : 
+                          <span className="badge bg-danger ms-2">Başarısız</span>
+                        }
+                      </p>
+                      <p><strong>QR Data (Görüntüden):</strong> {selectedTest.qr_data || 'N/A'}</p>
+                    </div>
+                  </div>
+
+                  {/* Açıklama Bölümü */}
+                  <div className="card bg-dark p-3 mb-4">
+                    <div className="d-flex justify-content-between align-items-center mb-2">
+                      <h6 className="text-info mb-0">Açıklama / Notlar</h6>
+                      {!editingDescription ? (
+                        <button 
+                          className="btn btn-sm btn-outline-info"
+                          onClick={() => {
+                            setEditingDescription(true);
+                            setTempDescription(selectedTest.user_description || "");
+                          }}
+                        >
+                          ✏️ Düzenle
+                        </button>
                       ) : (
-                        <span className="badge bg-danger">QR ✗</span>
+                        <div className="d-flex gap-2">
+                          <button 
+                            className="btn btn-sm btn-success"
+                            onClick={saveDescription}
+                            disabled={savingDescription}
+                          >
+                            {savingDescription ? "Kaydediliyor..." : "💾 Kaydet"}
+                          </button>
+                          <button 
+                            className="btn btn-sm btn-danger"
+                            onClick={() => {
+                              setEditingDescription(false);
+                              setTempDescription(selectedTest.user_description || "");
+                            }}
+                            disabled={savingDescription}
+                          >
+                            ❌ İptal
+                          </button>
+                        </div>
                       )}
                     </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="col-md-8">
-            {loadingDetails ? (
-              <div className="text-center py-4 text-muted">
-                <div className="spinner-border text-light" role="status"></div>
-                <div className="mt-2">Detaylar yükleniyor...</div>
-              </div>
-            ) : selectedTest && (
-              <div className="card bg-secondary text-light p-4">
-                <h5 className="mb-4">📄 Test Detayları</h5>
-                
-                {/* Temel Bilgiler */}
-                <div className="row mb-4">
-                  <div className="col-md-6">
-                    <p><strong>Test Adı:</strong> {selectedTest.test_name}</p>
-                    <p><strong>Sonuç:</strong> {selectedTest.result}</p>
-                    <p><strong>Tarih:</strong> {new Date(selectedTest.timestamp).toLocaleString('tr-TR')}</p>
+                    
+                    {!editingDescription ? (
+                      <p className="mb-0 text-light">
+                        {selectedTest.user_description || <span className="text-muted fst-italic">Henüz açıklama eklenmemiş</span>}
+                      </p>
+                    ) : (
+                      <textarea
+                        className="form-control bg-secondary text-light"
+                        rows="4"
+                        value={tempDescription}
+                        onChange={(e) => setTempDescription(e.target.value)}
+                        placeholder="Test hakkında notlar, gözlemler veya açıklamalar ekleyin..."
+                        disabled={savingDescription}
+                      />
+                    )}
+                    
+                    {selectedTest.description_updated_at && (
+                      <small className="text-muted mt-2 d-block">
+                        Son güncelleme: {new Date(selectedTest.description_updated_at).toLocaleString('tr-TR')}
+                      </small>
+                    )}
                   </div>
-                  <div className="col-md-6">
-                    <p><strong>QR Durumu:</strong> 
-                      {selectedTest.qr_read_success ? 
-                        <span className="badge bg-success ms-2">Başarılı</span> : 
-                        <span className="badge bg-danger ms-2">Başarısız</span>
-                      }
-                    </p>
-                    <p><strong>QR Data:</strong> {selectedTest.qr_data || 'N/A'}</p>
-                  </div>
-                </div>
 
-                {/* Yoğunluk Değerleri */}
-                <div className="card bg-dark p-3 mb-4">
-                  <h6 className="text-info mb-3">Yoğunluk Değerleri</h6>
-                  <div className="row">
-                    <div className="col-md-4">
-                      <p className="mb-2"><span className="text-light">Kontrol:</span> <code className="text-warning">{formatIntensity(selectedTest.control_intensity)}</code></p>
+                  {/* Experiment Bilgileri */}
+                  {(selectedTest.experiment_id1 || selectedTest.experiment_id2 || selectedTest.qr_code_from_command) && (
+                    <div className="card bg-dark p-3 mb-4">
+                      <h6 className="text-info mb-3">Experiment Bilgileri</h6>
+                      <div className="row">
+                        <div className="col-md-4">
+                          <p className="mb-2"><span className="text-light">Experiment ID 1:</span> <code className="text-warning">{selectedTest.experiment_id1 || 'N/A'}</code></p>
+                        </div>
+                        <div className="col-md-4">
+                          <p className="mb-2"><span className="text-light">Experiment ID 2:</span> <code className="text-warning">{selectedTest.experiment_id2 || 'N/A'}</code></p>
+                        </div>
+                        <div className="col-md-4">
+                          <p className="mb-2"><span className="text-light">QR (Komut):</span> <code className="text-warning">{selectedTest.qr_code_from_command || 'N/A'}</code></p>
+                        </div>
+                      </div>
                     </div>
-                    <div className="col-md-4">
-                      <p className="mb-2"><span className="text-light">Test:</span> <code className="text-warning">{formatIntensity(selectedTest.test_intensity)}</code></p>
-                    </div>
-                    <div className="col-md-4">
-                      <p className="mb-2"><span className="text-light">Arkaplan:</span> <code className="text-warning">{formatIntensity(selectedTest.background_intensity)}</code></p>
-                    </div>
-                  </div>
-                </div>
+                  )}
 
-                {/* Kullanıcı Bilgileri */}
-                {selectedTest.user_info && (
+                  {/* Yoğunluk Değerleri */}
                   <div className="card bg-dark p-3 mb-4">
-                    <h6 className="text-info mb-3">Kullanıcı Bilgileri</h6>
+                    <h6 className="text-info mb-3">Yoğunluk Değerleri</h6>
                     <div className="row">
-                      <div className="col-md-6">
-                        <p className="mb-2"><span className="text-light">Yaş:</span> <span className="text-white">{selectedTest.user_info.age}</span></p>
-                        <p className="mb-2"><span className="text-light">Boy:</span> <span className="text-white">{selectedTest.user_info.height} cm</span></p>
-                        <p className="mb-2"><span className="text-light">Kilo:</span> <span className="text-white">{selectedTest.user_info.weight} kg</span></p>
+                      <div className="col-md-4">
+                        <p className="mb-2"><span className="text-light">Kontrol:</span> <code className="text-warning">{formatIntensity(selectedTest.control_intensity)}</code></p>
                       </div>
-                      <div className="col-md-6">
-                        <p className="mb-2"><span className="text-light">Cinsiyet:</span> <span className="text-white">{selectedTest.user_info.gender}</span></p>
-                        <p className="mb-2"><span className="text-light">Sigara:</span> <span className="text-white">{selectedTest.user_info.smoking}</span></p>
-                        <p className="mb-2"><span className="text-light">Çalışma Ortamı:</span> <span className="text-white">{selectedTest.user_info.work_environment}</span></p>
+                      <div className="col-md-4">
+                        <p className="mb-2"><span className="text-light">Test:</span> <code className="text-warning">{formatIntensity(selectedTest.test_intensity)}</code></p>
                       </div>
+                      <div className="col-md-4">
+                        <p className="mb-2"><span className="text-light">Arkaplan:</span> <code className="text-warning">{formatIntensity(selectedTest.background_intensity)}</code></p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Eski kullanıcı bilgileri (varsa) */}
+                  {selectedTest.user_info && (
+                    <div className="card bg-dark p-3 mb-4">
+                      <h6 className="text-info mb-3">Kullanıcı Bilgileri (Eski Format)</h6>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <p className="mb-2"><span className="text-light">Yaş:</span> <span className="text-white">{selectedTest.user_info.age}</span></p>
+                          <p className="mb-2"><span className="text-light">Boy:</span> <span className="text-white">{selectedTest.user_info.height} cm</span></p>
+                          <p className="mb-2"><span className="text-light">Kilo:</span> <span className="text-white">{selectedTest.user_info.weight} kg</span></p>
+                        </div>
+                        <div className="col-md-6">
+                          <p className="mb-2"><span className="text-light">Cinsiyet:</span> <span className="text-white">{selectedTest.user_info.gender}</span></p>
+                          <p className="mb-2"><span className="text-light">Sigara:</span> <span className="text-white">{selectedTest.user_info.smoking}</span></p>
+                          <p className="mb-2"><span className="text-light">Çalışma Ortamı:</span> <span className="text-white">{selectedTest.user_info.work_environment}</span></p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Görsel Butonları */}
+                  <div className="d-flex gap-2 mb-3">
+                    {selectedTest.image_original && (
+                      <button className="btn btn-outline-light" onClick={() => setShowOriginalImage(true)}>
+                        📷 Orijinal Görsel
+                      </button>
+                    )}
+                    {selectedTest.image_cropped && (
+                      <button className="btn btn-outline-light" onClick={() => setShowCroppedImage(true)}>
+                        ✂️ Kırpılmış Görsel
+                      </button>
+                    )}
+                    {selectedTest.profile && Array.isArray(selectedTest.profile) && (
+                      <button className="btn btn-outline-info" onClick={() => setShowChart(true)}>
+                        📊 Yoğunluk Grafiği
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : (
+        // WiFi QR Tab İçeriği
+        <div className="container-fluid p-4">
+          <div className="row justify-content-center">
+            <div className="col-md-6">
+              <div className="card bg-secondary text-light p-4">
+                <h5 className="mb-4">📶 WiFi QR Kod Oluşturucu</h5>
+                
+                <div className="mb-3">
+                  <label className="form-label">WiFi Adı (SSID)</label>
+                  <input
+                    type="text"
+                    className="form-control"
+                    placeholder="Örn: MyWiFi"
+                    value={wifiSSID}
+                    onChange={(e) => setWifiSSID(e.target.value)}
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label">Şifre</label>
+                  <input
+                    type="password"
+                    className="form-control"
+                    placeholder="WiFi şifresi"
+                    value={wifiPassword}
+                    onChange={(e) => setWifiPassword(e.target.value)}
+                  />
+                </div>
+
+                <div className="mb-3">
+                  <label className="form-label">Güvenlik Türü</label>
+                  <select 
+                    className="form-select"
+                    value={wifiSecurity}
+                    onChange={(e) => setWifiSecurity(e.target.value)}
+                  >
+                    <option value="WPA">WPA/WPA2</option>
+                    <option value="WEP">WEP</option>
+                    <option value="nopass">Şifresiz</option>
+                  </select>
+                </div>
+
+                <button 
+                  className="btn btn-primary w-100 mb-3"
+                  onClick={generateWifiQR}
+                >
+                  QR Kod Oluştur
+                </button>
+
+                {qrCodeData && (
+                  <div className="text-center">
+                    <img 
+                      src={qrCodeData} 
+                      alt="WiFi QR Code" 
+                      className="img-fluid rounded shadow mb-3"
+                      style={{ maxWidth: '300px' }}
+                    />
+                    <div className="d-flex gap-2 justify-content-center">
+                      <a 
+                        href={qrCodeData} 
+                        download={`WiFi_${wifiSSID}_QR.png`}
+                        className="btn btn-success"
+                      >
+                        💾 İndir
+                      </a>
+                      <button 
+                        className="btn btn-warning"
+                        onClick={() => {
+                          setWifiSSID('');
+                          setWifiPassword('');
+                          setWifiSecurity('WPA');
+                          setQrCodeData('');
+                        }}
+                      >
+                        🔄 Temizle
+                      </button>
                     </div>
                   </div>
                 )}
-
-                {/* Görsel Butonları */}
-                <div className="d-flex gap-2 mb-3">
-                  {selectedTest.image_original && (
-                    <button className="btn btn-outline-light" onClick={() => setShowOriginalImage(true)}>
-                      📷 Orijinal Görsel
-                    </button>
-                  )}
-                  {selectedTest.image_cropped && (
-                    <button className="btn btn-outline-light" onClick={() => setShowCroppedImage(true)}>
-                      ✂️ Kırpılmış Görsel
-                    </button>
-                  )}
-                  {/* Debug görsel varsa onu da göster */}
-                  {!selectedTest.image_cropped && selectedTest.debug_image_blob && (
-                    <button className="btn btn-outline-light" onClick={() => setShowCroppedImage(true)}>
-                      🔍 Debug Görsel
-                    </button>
-                  )}
-                  {selectedTest.profile && Array.isArray(selectedTest.profile) && (
-                    <button className="btn btn-outline-info" onClick={() => setShowChart(true)}>
-                      📊 Yoğunluk Grafiği
-                    </button>
-                  )}
-                </div>
               </div>
-            )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* Orijinal Görsel Popup */}
       {showOriginalImage && selectedTest?.image_original && (
