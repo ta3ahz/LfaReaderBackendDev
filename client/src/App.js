@@ -209,7 +209,7 @@ export default function App() {
 
   // Export fonksiyonu
   const handleExport = () => {
-    if (confirm("Tüm test verilerini indirmek istediğinize emin misiniz?")) {
+    if (window.confirm("Tüm test verilerini indirmek istediğinize emin misiniz?")) {
       window.location.href = "/api/tests/export";
     }
   };
