@@ -31,6 +31,12 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [loadingDetails, setLoadingDetails] = useState(false);
   
+  // Sayfalama state'leri
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalTests, setTotalTests] = useState(0);
+  const [pageSize, setPageSize] = useState(50);
+  
   // Tab ve WiFi QR state'leri
   const [activeTab, setActiveTab] = useState("tests");
   const [wifiSSID, setWifiSSID] = useState("");
@@ -42,18 +48,55 @@ export default function App() {
   const [editingDescription, setEditingDescription] = useState(false);
   const [tempDescription, setTempDescription] = useState("");
   const [savingDescription, setSavingDescription] = useState(false);
+  
+  // İstatistik state'i
+  const [stats, setStats] = useState(null);
+  const [loadingStats, setLoadingStats] = useState(false);
 
-  const loadTests = () => {
+  const loadTests = (page = 1) => {
     setLoading(true);
-    fetch("/api/tests", { credentials: "include" })
+    
+    // Query parametrelerini oluştur
+    const params = new URLSearchParams({
+      page: page,
+      limit: pageSize
+    });
+    
+    // Filtreleri ekle
+    if (filterResult !== "all") params.append("result", filterResult);
+    if (filterQRStatus !== "all") params.append("qr_success", filterQRStatus === "success");
+    
+    fetch(`/api/tests?${params}`, { credentials: "include" })
       .then((res) => res.json())
-      .then((data) => {
-        setTests(data);
+      .then((response) => {
+        if (response.data) {
+          setTests(response.data);
+          setCurrentPage(response.pagination.page);
+          setTotalPages(response.pagination.pages);
+          setTotalTests(response.pagination.total);
+        } else {
+          // Eski format için fallback
+          setTests(response);
+        }
         setLoading(false);
       })
       .catch((err) => {
         console.error("🔥 HATA:", err);
         setLoading(false);
+      });
+  };
+
+  const loadStats = () => {
+    setLoadingStats(true);
+    fetch("/api/stats", { credentials: "include" })
+      .then((res) => res.json())
+      .then((data) => {
+        setStats(data);
+        setLoadingStats(false);
+      })
+      .catch((err) => {
+        console.error("İstatistik hatası:", err);
+        setLoadingStats(false);
       });
   };
 
@@ -64,9 +107,17 @@ export default function App() {
         if (data.loggedIn) {
           setLoggedIn(true);
           loadTests();
+          loadStats();
         }
       });
   }, []);
+
+  // Filtre değişikliklerinde yeniden yükle
+  useEffect(() => {
+    if (loggedIn) {
+      loadTests(1); // Filtre değiştiğinde ilk sayfaya dön
+    }
+  }, [filterResult, filterQRStatus, pageSize]);
 
   const loadDetails = (id) => {
     setLoadingDetails(true);
@@ -100,6 +151,7 @@ export default function App() {
           setLoggedIn(true);
           setLoginError("");
           loadTests();
+          loadStats();
         } else {
           setLoginError("Hatalı kullanıcı adı veya şifre");
         }
@@ -141,7 +193,8 @@ export default function App() {
           description_updated_at: new Date()
         });
         setEditingDescription(false);
-        loadTests(); // Listeyi yenile (📝 simgesi için)
+        loadTests(currentPage); // Mevcut sayfayı yenile
+        loadStats(); // İstatistikleri güncelle
         alert("Açıklama başarıyla güncellendi!");
       } else {
         alert("Güncelleme başarısız: " + (data.error || "Bilinmeyen hata"));
@@ -151,6 +204,13 @@ export default function App() {
       alert("Güncelleme sırasında hata oluştu!");
     } finally {
       setSavingDescription(false);
+    }
+  };
+
+  // Export fonksiyonu
+  const handleExport = () => {
+    if (confirm("Tüm test verilerini indirmek istediğinize emin misiniz?")) {
+      window.location.href = "/api/tests/export";
     }
   };
 
@@ -171,31 +231,64 @@ export default function App() {
     setQrCodeData(qrApiUrl);
   };
 
+  // Client-side filtreleme (arama için)
   const filteredTests = tests.filter((test) => {
     const name = test.test_name?.toLowerCase() || "";
-    const result = test.result || "";
-    const time = test.timestamp || 0;
-    const qrStatus = test.qr_read_success;
-
     const matchesSearch = name.includes(searchTerm.toLowerCase()) || 
                          (test.experiment_id1 && test.experiment_id1.toString().includes(searchTerm)) ||
                          (test.experiment_id2 && test.experiment_id2.toString().includes(searchTerm)) ||
                          (test.qr_code_from_command && test.qr_code_from_command.toLowerCase().includes(searchTerm.toLowerCase()));
-    const matchesName = !filterName || test.test_name === filterName;
-    const matchesResult = filterResult === "all" || result === filterResult;
-    const matchesQRStatus = filterQRStatus === "all" || 
-                           (filterQRStatus === "success" && qrStatus === true) ||
-                           (filterQRStatus === "failed" && qrStatus === false);
-    const matchesDate = (!startDate || new Date(time) >= new Date(startDate)) &&
-                        (!endDate || new Date(time) <= new Date(endDate));
-    
-    return matchesSearch && matchesResult && matchesDate && matchesName && matchesQRStatus;
+    return matchesSearch;
   });
-
-  const uniqueTestNames = [...new Set(tests.map(test => test.test_name).filter(Boolean))];
 
   const formatIntensity = (value) => {
     return value ? value.toFixed(4) : 'N/A';
+  };
+
+  // Sayfalama component'i
+  const Pagination = () => {
+    const maxVisible = 5;
+    const pages = [];
+    
+    let start = Math.max(1, currentPage - Math.floor(maxVisible / 2));
+    let end = Math.min(totalPages, start + maxVisible - 1);
+    
+    if (end - start + 1 < maxVisible) {
+      start = Math.max(1, end - maxVisible + 1);
+    }
+    
+    for (let i = start; i <= end; i++) {
+      pages.push(i);
+    }
+    
+    return (
+      <div className="d-flex justify-content-between align-items-center mt-3">
+        <div className="text-muted">
+          Toplam {totalTests} test ({currentPage}/{totalPages} sayfa)
+        </div>
+        <nav>
+          <ul className="pagination mb-0">
+            <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+              <button className="page-link" onClick={() => loadTests(1)}>İlk</button>
+            </li>
+            <li className={`page-item ${currentPage === 1 ? 'disabled' : ''}`}>
+              <button className="page-link" onClick={() => loadTests(currentPage - 1)}>Önceki</button>
+            </li>
+            {pages.map(page => (
+              <li key={page} className={`page-item ${page === currentPage ? 'active' : ''}`}>
+                <button className="page-link" onClick={() => loadTests(page)}>{page}</button>
+              </li>
+            ))}
+            <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+              <button className="page-link" onClick={() => loadTests(currentPage + 1)}>Sonraki</button>
+            </li>
+            <li className={`page-item ${currentPage === totalPages ? 'disabled' : ''}`}>
+              <button className="page-link" onClick={() => loadTests(totalPages)}>Son</button>
+            </li>
+          </ul>
+        </nav>
+      </div>
+    );
   };
 
   if (!loggedIn) {
@@ -209,6 +302,7 @@ export default function App() {
             placeholder="Kullanıcı Adı"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
           />
           <input
             type="password"
@@ -216,6 +310,7 @@ export default function App() {
             placeholder="Şifre"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleLogin()}
           />
           {loginError && <div className="text-danger mb-2">{loginError}</div>}
           <button className="btn btn-light w-100" onClick={handleLogin}>Giriş Yap</button>
@@ -229,8 +324,20 @@ export default function App() {
       <nav className="navbar navbar-dark bg-secondary px-3 d-flex justify-content-between align-items-center">
         <div className="d-flex align-items-center gap-2">
           <span className="navbar-brand mb-0 h1">Test Yönetim Paneli</span>
+          {stats && (
+            <span className="badge bg-info">
+              Toplam: {stats.total} | Pozitif: {stats.positive} | Negatif: {stats.negative}
+            </span>
+          )}
         </div>
-        <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>Çıkış Yap</button>
+        <div className="d-flex gap-2">
+          <button className="btn btn-outline-warning btn-sm" onClick={handleExport}>
+            📥 Tümünü İndir
+          </button>
+          <button className="btn btn-outline-light btn-sm" onClick={handleLogout}>
+            Çıkış Yap
+          </button>
+        </div>
       </nav>
       
       {/* Tab Navigation */}
@@ -249,6 +356,14 @@ export default function App() {
             onClick={() => setActiveTab('wifi')}
           >
             WiFi QR Oluştur
+          </button>
+        </li>
+        <li className="nav-item">
+          <button 
+            className={`nav-link ${activeTab === 'stats' ? 'active' : ''}`}
+            onClick={() => setActiveTab('stats')}
+          >
+            İstatistikler
           </button>
         </li>
       </ul>
@@ -286,26 +401,16 @@ export default function App() {
                 </div>
                 
                 <div className="d-flex gap-2 mt-2">
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                  />
-                  <input
-                    type="date"
-                    className="form-control"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                  />
+                  <select 
+                    className="form-select"
+                    value={pageSize}
+                    onChange={(e) => setPageSize(Number(e.target.value))}
+                  >
+                    <option value="20">20 kayıt</option>
+                    <option value="50">50 kayıt</option>
+                    <option value="100">100 kayıt</option>
+                  </select>
                 </div>
-                
-                <select className="form-select mt-2" value={filterName} onChange={(e) => setFilterName(e.target.value)}>
-                  <option value="">Tüm Testler</option>
-                  {uniqueTestNames.map((name, idx) => (
-                    <option key={idx} value={name}>{name}</option>
-                  ))}
-                </select>
               </div>
 
               {/* Test Listesi */}
@@ -315,40 +420,46 @@ export default function App() {
                   <div className="mt-2">Testler yükleniyor...</div>
                 </div>
               ) : (
-                <ul className="list-group list-group-flush bg-dark">
-                  {filteredTests.map((test) => (
-                    <li
-                      key={test._id}
-                      className="list-group-item bg-secondary text-light d-flex justify-content-between align-items-center"
-                      onClick={() => loadDetails(test._id)}
-                      style={{ cursor: "pointer" }}
-                    >
-                      <div>
-                        <div>🧪 {test.test_name}</div>
-                        <small className="text-muted">
-                          {new Date(test.timestamp).toLocaleString('tr-TR')}
-                        </small>
-                        {(test.experiment_id1 || test.experiment_id2) && (
-                          <div>
-                            <small className="text-info">
-                              Exp: {test.experiment_id1 || 'N/A'} / {test.experiment_id2 || 'N/A'}
-                            </small>
-                          </div>
-                        )}
-                      </div>
-                      <div className="d-flex gap-1 align-items-center">
-                        {test.user_description && (
-                          <span className="badge bg-info" title="Açıklama var">📝</span>
-                        )}
-                        {test.qr_read_success ? (
-                          <span className="badge bg-success">QR ✓</span>
-                        ) : (
-                          <span className="badge bg-danger">QR ✗</span>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="list-group list-group-flush bg-dark">
+                    {filteredTests.map((test) => (
+                      <li
+                        key={test._id}
+                        className="list-group-item bg-secondary text-light d-flex justify-content-between align-items-center"
+                        onClick={() => loadDetails(test._id)}
+                        style={{ cursor: "pointer" }}
+                      >
+                        <div>
+                          <div>🧪 {test.test_name}</div>
+                          <small className="text-muted">
+                            {new Date(test.timestamp).toLocaleString('tr-TR')}
+                          </small>
+                          {(test.experiment_id1 || test.experiment_id2) && (
+                            <div>
+                              <small className="text-info">
+                                Exp: {test.experiment_id1 || 'N/A'} / {test.experiment_id2 || 'N/A'}
+                              </small>
+                            </div>
+                          )}
+                        </div>
+                        <div className="d-flex gap-1 align-items-center">
+                          {test.user_description && (
+                            <span className="badge bg-info" title="Açıklama var">📝</span>
+                          )}
+                          {test.qr_read_success ? (
+                            <span className="badge bg-success">QR ✓</span>
+                          ) : (
+                            <span className="badge bg-danger">QR ✗</span>
+                          )}
+                          <span className={`badge ${test.result === 'Pozitif' ? 'bg-warning' : 'bg-primary'}`}>
+                            {test.result}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  {totalPages > 1 && <Pagination />}
+                </>
               )}
             </div>
 
@@ -515,7 +626,7 @@ export default function App() {
             </div>
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'wifi' ? (
         // WiFi QR Tab İçeriği
         <div className="container-fluid p-4">
           <div className="row justify-content-center">
@@ -596,6 +707,99 @@ export default function App() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      ) : (
+        // İstatistikler Tab İçeriği
+        <div className="container-fluid p-4">
+          <div className="row justify-content-center">
+            <div className="col-md-8">
+              {loadingStats ? (
+                <div className="text-center py-4 text-muted">
+                  <div className="spinner-border text-light" role="status"></div>
+                  <div className="mt-2">İstatistikler yükleniyor...</div>
+                </div>
+              ) : stats && (
+                <div className="card bg-secondary text-light p-4">
+                  <h5 className="mb-4">📊 Test İstatistikleri</h5>
+                  
+                  <div className="row">
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-info">{stats.total}</h3>
+                        <p className="mb-0">Toplam Test</p>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-warning">{stats.positive}</h3>
+                        <p className="mb-0">Pozitif Sonuç</p>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-primary">{stats.negative}</h3>
+                        <p className="mb-0">Negatif Sonuç</p>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-success">{stats.qr_success}</h3>
+                        <p className="mb-0">QR Başarılı</p>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-danger">{stats.qr_failed}</h3>
+                        <p className="mb-0">QR Başarısız</p>
+                      </div>
+                    </div>
+                    
+                    <div className="col-md-4 mb-3">
+                      <div className="card bg-dark p-3 text-center">
+                        <h3 className="text-info">{stats.with_description}</h3>
+                        <p className="mb-0">Açıklamalı Test</p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {stats.experiments && (
+                    <div className="mt-4">
+                      <h6 className="text-info mb-3">Deney İstatistikleri</h6>
+                      <div className="row">
+                        <div className="col-md-6">
+                          <p><strong>Farklı Experiment ID 1:</strong> {stats.experiments.unique_exp1}</p>
+                        </div>
+                        <div className="col-md-6">
+                          <p><strong>Farklı Experiment ID 2:</strong> {stats.experiments.unique_exp2}</p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className="mt-4">
+                    <div className="progress" style={{ height: '30px' }}>
+                      <div 
+                        className="progress-bar bg-warning" 
+                        style={{ width: `${(stats.positive / stats.total * 100).toFixed(1)}%` }}
+                      >
+                        Pozitif {(stats.positive / stats.total * 100).toFixed(1)}%
+                      </div>
+                      <div 
+                        className="progress-bar bg-primary" 
+                        style={{ width: `${(stats.negative / stats.total * 100).toFixed(1)}%` }}
+                      >
+                        Negatif {(stats.negative / stats.total * 100).toFixed(1)}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
